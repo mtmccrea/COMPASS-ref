@@ -134,8 +134,8 @@ while startIndex+blocksize <= nBlocks*blocksize
         % Combine covariance matrices for this ERB band and take the EVD
         Cx_erb = sum(sum(CxHalf(:,:,erb_bins,:),4),3);
         Cx_anl = Cx_erb(1:nSH_anl,1:nSH_anl); % truncate for current analysis order
-        [V,S] = sortedEig(Cx_anl);
-        lambda = diag(real(S));
+        [V,S] = sortedEig(Cx_anl); % TODO: consider modifying sortedEig: EIG(...,'matrix') returns eigenvalues in a diagonal matrix instead of a column vector.
+        lambda = diag(real(S)); % TODO: S already returned as real 
         
         if sum(lambda)>0
             % Source number (K) estimation
@@ -145,7 +145,6 @@ while startIndex+blocksize <= nBlocks*blocksize
             if order_erb==1
                 K_est = RAE(lambda);
             else
-                K_est = RAE(lambda);
                 K_est = SORTE(lambda);
             end
             K = min([K_est K_diffuseness K_lim]);

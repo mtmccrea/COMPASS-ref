@@ -44,7 +44,7 @@ function [K, obfunc] = SORTE(lambda)
 %
 % K         % the number of detected sources in the mixtures
 % obfunc    % the values of the SORTE criteria for the different source
-%             numbers - its minimum indicates theestimated source number
+%             numbers - its minimum indicates the estimated source number
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
