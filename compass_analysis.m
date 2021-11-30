@@ -58,7 +58,7 @@ nFrames = analysis_struct.nFramesInBlock;
 nDoas = size(analysis_struct.DOAgrid,1);
 SHorderIn = sqrt(nSH)-1;
 
-addpath('./ext-lib/afSTFT')
+% addpath('./ext-lib/afSTFT')
 
 % STFT allocation
 afSTFT(hopsize,nSH,nSH,'hybrid'); 
@@ -152,7 +152,7 @@ while startIndex+blocksize <= nBlocks*blocksize
             % DoA estimation
             Vn = V(:,K+1:end);
             pmap = sphMUSIC(analysis_struct.SHgrid(:,1:nSH_anl).', Vn);
-            est_idx = sphPeakFind(pmap, analysis_struct.DOAgrid, K);
+            est_idx = sphPeakFind(pmap, analysis_struct.DOAgrid, K); % TODO: sphPeakFind modified to return [] when K=0
         else
             diffuseness = 0;
             K = 1;

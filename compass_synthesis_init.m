@@ -46,7 +46,7 @@ function synthesis_struct = compass_synthesis_init(analysis_struct, output_struc
 % output_struct.streamBalance   % control balance between source stream and
 %                                 ambient/residual stream, with values {0~2}.
 %                                 For example,
-%                                 0:only diffuse, 1:equal, 2:only source stream
+%                                 0:only (ambisonic, residual) diffuse, 1:equal, 2:only source stream
 %                                 scalar: same balance at all bands
 %                                 vector [nBands x 1]: balance per frequency band
 %                                 default: 1
@@ -88,7 +88,8 @@ function synthesis_struct = compass_synthesis_init(analysis_struct, output_struc
 % synthesis_struct                % structure with spatial modification and
 %                                 rendering parameters
 
-addpath('./compass-lib')
+
+% addpath('./compass-lib')
 
 %%% ARGUMENT CHECK AND SETTING DEFAULT VALUES
 if ~isfield(output_struct, 'mode') || isempty(output_struct.mode)
@@ -184,6 +185,7 @@ DIFFgrid_aziElev        = DIFFgrid_aziElev*180/pi;
 synthesis_struct.SHgrid_diff = (4*pi)*getRSH(analysis_struct.maxSHorder, DIFFgrid_aziElev).';
 nDiff = size(DIFFgrid_aziElev,1);
 synthesis_struct.decorrelationDelays = getDecorrelationDelays(nDiff,analysis_struct.bandFreq,analysis_struct.fs,2*analysis_struct.nFramesInBlock,synthesis_struct.hopSize);
+synthesis_struct.DIFFgrid_aziElev = DIFFgrid_aziElev;
 
 %%% LOUDSPEAKER RENDERING
 % vbap gains for grid directions
@@ -191,6 +193,7 @@ DOAgrid_aziElev     = unitCart2sph(analysis_struct.DOAgrid)*180/pi;
 ls_groups           = findLsTriplets(output_struct.ls_dirs);
 layoutInvMtx        = invertLsMtx(output_struct.ls_dirs, ls_groups);
 synthesis_struct.vbap_gtable = vbap(DOAgrid_aziElev, ls_groups, layoutInvMtx, output_struct.vbapSpread).';
+synthesis_struct.DOAgrid_aziElev = DOAgrid_aziElev;
 
 % p-value for VBAP normalization
 if output_struct.vbapNorm == 0

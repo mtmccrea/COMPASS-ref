@@ -41,6 +41,11 @@ function peaks_idx = sphPeakFind(pmap, grid_xyz, nPeaks)
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+if nPeaks == 0 
+    peaks_idx = [];
+    return
+end
+
 kappa  = 50; % Von Mises-Fisher concentration parameter
 P_minus_peak = pmap;
 peaks_idx = zeros(nPeaks, 1);
