@@ -1,4 +1,4 @@
-function [output_signals, synthesis_struct] = compass_synthesis(compass_signals, synthesis_struct, compass_parameters)
+function [output_signals, synthesis_struct] = compass_synthesis(compass_signals, synthesis_struct, compass_parameters, lateralEQ_struct)
 % COMPASS_SNYTHESIS The COMPASS method performing the sythesis based on the spatial analysis
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -55,6 +55,7 @@ nBands = length(synthesis_struct.bandFreq);
 nSH = size(compass_signals,1);
 order = sqrt(nSH)-1;
 nBlocks = size(compass_signals,4);
+nLS = size(synthesis_struct.vbap_gtable,1); % TODO: nLS was missing from main repo version % TODO set/store in struct prior?
 
 eq = synthesis_struct.eq;
 strBal = synthesis_struct.streamBalance;
@@ -66,6 +67,9 @@ M_dec_diff = Ad/nDiff;
 nCHout = size(synthesis_struct.vbap_gtable,1);
 M_dec = repmat(synthesis_struct.ambiDec, [1 1 nBands]);
 nElimDoas = 0; 
+zeroSrcCnt = 0; % mtm
+deadAheadCnt = 0; % mtm
+applyLatEQ = ~(nargin < 4 || isempty(lateralEQ_struct)); % mtm
 
 % afSTFT initialization/allocation
 afSTFTdelay = 12*hopsize;
@@ -82,7 +86,7 @@ nBlocksInBuffer         = ceil((32+nFrames)/nFrames);
 nbib_1                  = nBlocksInBuffer-1;
 ambientBlock            = zeros(nDiff,nFrames,nBands);
 ambientBufferXBlocks    = zeros(nDiff,nBlocksInBuffer*nFrames,nBands);
-decAmbientBlock = zeros(nDiff,nFrames);
+decAmbientBlock         = zeros(nDiff,nFrames);
 ducker_struct.transientDetector1 = zeros(nDiff, 1, nBands);
 ducker_struct.transientDetector2 = zeros(nDiff, 1, nBands);
 
@@ -108,36 +112,99 @@ while blockIndex <= nBlocks
     % Loop over ERB band groupings
     for erband=1:synthesis_struct.nERBands-1
         % fetch the estimated parameters for this ERB band
-        erb_bins = synthesis_struct.ERBbinIdx(erband):synthesis_struct.ERBbinIdx(erband+1)-1;  
+        erb_bins = synthesis_struct.ERBbinIdx(erband):synthesis_struct.ERBbinIdx(erband+1)-1;
+        nBins = numel(erb_bins); % mtm
         nSrc = compass_parameters.nSrc(erb_bins(1), blockIndex);
-        doa_idx = compass_parameters.doa_idx(1:nSrc, erb_bins(1), blockIndex);
+        % mtm: NOTE: doas for all bins in a band are the same, 
+        %      as set in the analysis stage (covariance matrix for all bins are combined before analysis)
+        doa_idcs = compass_parameters.doa_idx(1:nSrc, erb_bins(1), blockIndex); 
         
+%         % DEBUG mtm
+%         if nSrc == 0, zeroSrcCnt = zeroSrcCnt+1; end % mtm
+%         if nSrc > 0 % mtm, if 'doa_idx>1' below is used, only frames where first source dir x=0 get skipped
+%             if doa_idcs<=1 % detect x = 0 arrivals in first source
+%                 deadAheadCnt = deadAheadCnt+1; 
+%             end
+%         end
+%         if nSrc>1            
+%             fprintf("\nnSrc>1, nSrc %d, nelimd %d ", nSrc, nelimd)
+%             if nSrc == 1, warning('false positive'); end
+%             if nelimd > 0, fprintf("YOW\n"); end
+%             if nelimd > 0, fprintf("nSrc %d, nelimd %d\n", nSrc, nelimd); end
+%             if nSrc > 2 && nelimd > 0, fprintf("nSrc %d, nelimd %d\n", nSrc, nelimd); end
+
+
         % for multiple DoAs, merge those that are closely spaced 
-        if doa_idx>1
-            [new_doa_xyz, nelimd] = eliminateAdjacentDOAs(synthesis_struct.DOAgrid(doa_idx,:), synthesis_struct.nullAngSepThresh(order));
+        if doa_idcs>1 % mtm: should this be nSrc ?
+            % TODO: in the case of HO input, no DoAs seem to be eliminated        
+            [new_doa_xyz, nelimd] = eliminateAdjacentDOAs(synthesis_struct.DOAgrid(doa_idcs,:), synthesis_struct.nullAngSepThresh(order));        
         else
-            new_doa_xyz = synthesis_struct.DOAgrid(doa_idx,:);
+            new_doa_xyz = synthesis_struct.DOAgrid(doa_idcs,:); % TODO: mtm appears unused
             nelimd = 0;
         end
         if nelimd
-            doa_idx = findClosestGridPoints(synthesis_struct.DOAgrid, new_doa_xyz);
+            doa_idcs = findClosestGridPoints(synthesis_struct.DOAgrid, new_doa_xyz);
             nElimDoas = nElimDoas+nelimd;
         end
-
+        Ndoa = numel(doa_idcs);
+        
         % COMPASS matrices
-        As = synthesis_struct.SHgrid(doa_idx,:).';  % source beamformers
-        Ds = pinv(As);                              % steer nulls to other sources
+        As = synthesis_struct.SHgrid(doa_idcs,:).'; % source beamformers
+        Ds = pinv(As);                              % Adds nulls to the beamformers, pointed at other sources, normalizes in direction of DoA
         Dd = eye(nSH) - As*Ds;                      % residual (after sources are subtracted from input field)
 
-        % Formulate mixing matrices per band
-        gains_nerb = synthesis_struct.vbap_gtable(:,doa_idx); % VBAP gains
+        % Formulate mixing matrices per band     
+        
+        % VBAP gains + lateralization EQ
+        gains_nerb = synthesis_struct.vbap_gtable(:,doa_idcs);
+        
+        if applyLatEQ && Ndoa>0
+            doas_aziElev = synthesis_struct.DOAgrid_aziElev(doa_idcs);
+            latEQs = zeros(nBins,Ndoa);
+            igrid = lateralEQ_struct.interpGrid;
+            binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
+        
+            for doai = 1:Ndoa
+                [fwBias, lateralAz, ~] = getForwardBias(doas_aziElev(doai,1), lateralEQ_struct.lsArrayAz);    
+                [dq1, dq2, dq3] = ndgrid(fwBias, lateralAz, binFreqs);
+
+                % TODO: need to convert db->amp here, but should
+                % store EQ as amp not db (observe softclip behavior in that case)
+                latEQs(:,doai) = squeeze( interpn(  ...
+                        igrid{1}, igrid{2}, igrid{3}, lateralEQ_struct.eq_table_culled, dq1, dq2, dq3, lateralEQ_struct.interpType ...
+                        ));
+                % Error checking
+                if any(isnan(latEQs(:,doai)),'all')
+                    error('NaNs found when interpolating EQ table. Interpolation points are out of range.')
+                end
+            end
+            % reset gains to amp normalized, i.e. pval=1
+            % TODO: this norm can happen in preprocessing in the struct
+            gains_nb = gains_nerb ./ sum(gains_nerb, 1); 
+        end
+        
+        % ~~~~~~~~~~~~~~~~~~~~~~~~~~~ DEBUG ~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+%         if mod(blockIndex,10) == 0
+%             fprintf("erb_bins: %s\n", join(string(erb_bins), ' '))
+%             disp(db2mag(latEQs)); 
+%         end
+        % ~~~~~~~~~~~~~~~~~~~~~~~~~~~ DEBUG ~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+        
+        bini = 0;
+%         fprintf("\napplying gains: ")
         for band = erb_bins
-            if synthesis_struct.vbap_pValue(band) ~= 2
+            bini = bini+1;
+            if applyLatEQ && Ndoa>0
+                Meq = diag(db2mag(latEQs(bini,:)));
+            elseif synthesis_struct.vbap_pValue(band) ~= 2
                 % apply frequency-dependent VBAP normalization, if needed
                 pVal_nb = synthesis_struct.vbap_pValue(band);
+                % TODO: ensure normalization happens across columns (DoAs), not whole nLS x Ndoa matrix
                 gains_nb = gains_nerb./(ones(nLS,1) * sum(gains_nerb.^pVal_nb).^(1/pVal_nb));
+                Meq = diag(ones(1,Ndoa));
             else
                 gains_nb = gains_nerb;
+                Meq = diag(ones(1,Ndoa));
             end
             
             % mixing gains between source (a) and ambient (b) stream
@@ -150,7 +217,7 @@ while blockIndex <= nBlocks
             end
             
             % Source and ambient stream rendering matrices
-            new_Ms(:,:,band) = eq(band)*a*(gs*decBal(band)*gains_nb*Ds + (1-decBal(band))*M_dec(:,:,band)/2);
+            new_Ms(:,:,band) = eq(band)*a*(gs*decBal(band)*gains_nb*Meq*Ds + (1-decBal(band))*M_dec(:,:,band)/2);
             new_Md(:,:,band) = eq(band)*b*M_dec_diff*(gd*decBal(band)*Dd + (1-decBal(band))*eye(nSH)/2);
             
         end
@@ -219,6 +286,8 @@ fprintf('\n')
 
 output_signals_ls = output_signals_ls(afSTFTdelay+(1:((nBlocks-1)*blocksize)),:);  
 synthesis_struct.nElimDoas = nElimDoas;
+synthesis_struct.nZeroSrcCnt = zeroSrcCnt; % mtm
+synthesis_struct.nDeadAheadCnt = deadAheadCnt; % mtm
 
 % STFT destroy
 afSTFT();
