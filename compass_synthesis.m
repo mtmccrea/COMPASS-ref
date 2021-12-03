@@ -174,9 +174,7 @@ while blockIndex <= nBlocks
                         igrid{1}, igrid{2}, igrid{3}, lateralEQ_struct.eq_table_culled, dq1, dq2, dq3, lateralEQ_struct.interpType ...
                         ));
                 % Error checking
-                if any(isnan(latEQs(:,doai)),'all')
-                    error('NaNs found when interpolating EQ table. Interpolation points are out of range.')
-                end
+                checkForNaNs(latEQs(:,doai), 'compass_synthesis');
             end
             % reset gains to amp normalized, i.e. pval=1
             % TODO: this norm can happen in preprocessing in the struct

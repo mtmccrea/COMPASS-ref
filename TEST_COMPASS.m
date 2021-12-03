@@ -22,7 +22,7 @@ for SHorder=1:3
     % Configure synthesis
     load('./resources/Lspkr_example.mat', 'ls_dirs_deg_aziElev')
     output_struct.ls_dirs = ls_dirs_deg_aziElev;
-    output_struct.mode = 1; % 0: loudspeaker rendering, 1: headphone monitoring of loudspeaker rendering
+    output_struct.mode = 0; % 0: loudspeaker rendering, 1: headphone monitoring of loudspeaker rendering
 %    output_struct.eq = 1;
     output_struct.streamBalance = 1;
     output_struct.decodeBalance = 1;
@@ -52,7 +52,8 @@ end
 %% EXAMPLE2: Eigenmike order-3 recording - orchestra - concert hall
 
 % analysis/synthesis order 1-3
-for SHorder=1:3
+% for SHorder=1:3
+for SHorder=2
     
     % Configure analysis
     input_struct.fs         = 48000;
@@ -77,7 +78,7 @@ for SHorder=1:3
     output_struct.streamBalance = 1;
     output_struct.decodeBalance = 1;
     output_struct.diffusionLevel = 0.5;
-    output_struct.vbapNorm = 0;
+    output_struct.vbapNorm = 1;
     output_struct.vbapSpread = 15;
     if output_struct.mode
         sofa_struct = loadSofaFile('./resources/ownsurround2016_short_48k.sofa');
