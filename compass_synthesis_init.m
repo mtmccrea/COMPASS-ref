@@ -189,11 +189,13 @@ synthesis_struct.DIFFgrid_aziElev = DIFFgrid_aziElev;
 
 %%% LOUDSPEAKER RENDERING
 % vbap gains for grid directions
-DOAgrid_aziElev     = unitCart2sph(analysis_struct.DOAgrid)*180/pi;
+DOAgrid_aziElevRad  = unitCart2sph(analysis_struct.DOAgrid);
+DOAgrid_aziElev     = DOAgrid_aziElevRad * 180/pi;
 ls_groups           = findLsTriplets(output_struct.ls_dirs);
 layoutInvMtx        = invertLsMtx(output_struct.ls_dirs, ls_groups);
 synthesis_struct.vbap_gtable = vbap(DOAgrid_aziElev, ls_groups, layoutInvMtx, output_struct.vbapSpread).';
 synthesis_struct.DOAgrid_aziElev = DOAgrid_aziElev;
+synthesis_struct.DOAgrid_aziElevRad = DOAgrid_aziElevRad;
 
 % p-value for VBAP normalization
 if output_struct.vbapNorm == 0

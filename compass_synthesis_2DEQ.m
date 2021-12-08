@@ -1,4 +1,4 @@
-function [output_signals, synthesis_struct] = compass_synthesis(compass_signals, synthesis_struct, compass_parameters, lateralEQ_struct)
+function [output_signals, synthesis_struct] = compass_synthesis_2DEQ(compass_signals, synthesis_struct, compass_parameters, lateralEQ_struct)
 % COMPASS_SNYTHESIS The COMPASS method performing the sythesis based on the spatial analysis
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -70,6 +70,7 @@ nElimDoas = 0;
 zeroSrcCnt = 0; % mtm
 deadAheadCnt = 0; % mtm
 applyLatEQ = ~(nargin < 4 || isempty(lateralEQ_struct)); % mtm
+binMagDir = []; % DEBUG mtm
 
 % afSTFT initialization/allocation
 afSTFTdelay = 12*hopsize;
@@ -165,7 +166,8 @@ while blockIndex <= nBlocks
             binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
         
             for doai = 1:Ndoa
-                [fwBias, lateralAz, ~] = getForwardBias(doas_aziElev(doai,1), lateralEQ_struct.lsArrayAz);    
+                [fwBias, lateralAz, ~] = getForwardBias2DArray(doas_aziElev(doai,1), lateralEQ_struct.lsArrayAz);    
+                                
                 [dq1, dq2, dq3] = ndgrid(fwBias, lateralAz, binFreqs);
 
                 % TODO: need to convert db->amp here, but should
@@ -173,6 +175,12 @@ while blockIndex <= nBlocks
                 latEQs(:,doai) = squeeze( interpn(  ...
                         igrid{1}, igrid{2}, igrid{3}, lateralEQ_struct.eq_table_culled, dq1, dq2, dq3, lateralEQ_struct.interpType ...
                         ));
+                if mod(blockIndex, 50) == 0
+                    binMagDir = [ ...
+                        binMagDir; 
+                        [binFreqs, latEQs(:,doai), ones(numel(binFreqs),1).*doas_aziElev(doai,1)];
+                        ];
+                end
                 % Error checking
                 checkForNaNs(latEQs(:,doai), 'compass_synthesis');
             end
@@ -284,8 +292,9 @@ fprintf('\n')
 
 output_signals_ls = output_signals_ls(afSTFTdelay+(1:((nBlocks-1)*blocksize)),:);  
 synthesis_struct.nElimDoas = nElimDoas;
-synthesis_struct.nZeroSrcCnt = zeroSrcCnt; % mtm
-synthesis_struct.nDeadAheadCnt = deadAheadCnt; % mtm
+synthesis_struct.nZeroSrcCnt = zeroSrcCnt; % mtm DEBUG
+synthesis_struct.nDeadAheadCnt = deadAheadCnt; % mtm DEBUG
+synthesis_struct.binMagDir = binMagDir; % mtm DEBUG
 
 % STFT destroy
 afSTFT();
