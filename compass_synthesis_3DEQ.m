@@ -67,10 +67,17 @@ M_dec_diff = Ad/nDiff;
 nCHout = size(synthesis_struct.vbap_gtable,1);
 M_dec = repmat(synthesis_struct.ambiDec, [1 1 nBands]);
 nElimDoas = 0; 
-zeroSrcCnt = 0; % mtm
-deadAheadCnt = 0; % mtm
 applyLatEQ = ~(nargin < 4 || isempty(lateralEQ_struct)); % mtm
-binMagDir = []; % DEBUG mtm
+
+debug = lateralEQ_struct.debug;
+verbose = lateralEQ_struct.verbose;
+
+if debug
+    zeroSrcCnt = 0; % mtm
+    deadAheadCnt = 0; % mtm
+    binMagDir = []; % DEBUG mtm
+    latBiasSprdWght = [];
+end
 
 % afSTFT initialization/allocation
 afSTFTdelay = 12*hopsize;
@@ -159,40 +166,55 @@ while blockIndex <= nBlocks
         % VBAP gains + lateralization EQ
         gains_nerb = synthesis_struct.vbap_gtable(:,doa_idcs);
         
-        if applyLatEQ && Ndoa>0
-%             doas_aziElev = synthesis_struct.DOAgrid_aziElev(doa_idcs);
-            doas_aziElevRad = synthesis_struct.DOAgrid_aziElevRad(doa_idcs);
-            latEQs = zeros(nBins,Ndoa);
-            igrid = lateralEQ_struct.interpGrid;
-            binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
-        
-            for doai = 1:Ndoa
-%                 [fwBias, lateralAz, ~] = getForwardBias2DArray(doas_aziElev(doai,1), lateralEQ_struct.lsArrayAz);    
-                
-                [fwBias, lsSpreads, weights] = getForwardBias3DArray(...
-                    [doas_aziElevRad(doai,[1 2]) 1], ...
-                    lsLatAngs_rad, gains)
-                lsSpreads = min(lsSpreads, lateralEQ_struct.maxSpread);
-                
-                [dq1, dq2, dq3] = ndgrid(fwBias, lateralAz, binFreqs);
-
-                % TODO: need to convert db->amp here, but should
-                % store EQ as amp not db (observe softclip behavior in that case)
-                latEQs(:,doai) = squeeze( interpn(  ...
-                        igrid{1}, igrid{2}, igrid{3}, lateralEQ_struct.eq_table_culled, dq1, dq2, dq3, lateralEQ_struct.interpType ...
-                        ));
-                if mod(blockIndex, 50) == 0
-                    binMagDir = [ ...
-                        binMagDir; 
-                        [binFreqs, latEQs(:,doai), ones(numel(binFreqs),1).*doas_aziElev(doai,1)];
-                        ];
-                end
-                % Error checking
-                checkForNaNs(latEQs(:,doai), 'compass_synthesis');
-            end
+        if applyLatEQ && Ndoa > 0
             % reset gains to amp normalized, i.e. pval=1
             % TODO: this norm can happen in preprocessing in the struct
             gains_nb = gains_nerb ./ sum(gains_nerb, 1); 
+            
+%             doas_aziElev = synthesis_struct.DOAgrid_aziElev(doa_idcs,:);
+            doas_aziElevRad = synthesis_struct.DOAgrid_aziElevRad(doa_idcs,:);
+            latEQs = zeros(nBins,Ndoa);
+            igrid = lateralEQ_struct.interpGrid;
+            binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
+            
+            for doai = 1:Ndoa
+%                 [fwBias, lateralAz, ~] = getForwardBias2DArray(doas_aziElev(doai,1), lateralEQ_struct.lsArrayAz);    
+                [srcLatAng_rad, fwBias, lsSpreads_rad, weights] = ...
+                    getForwardBias3DArray( ...
+                        doas_aziElevRad(doai,:), lateralEQ_struct.lsLatAngs_rad, gains_nerb(:,doai), verbose);
+                srcLatAng_deg = rad2deg(srcLatAng_rad);
+                lsSpreads_deg = rad2deg(lsSpreads_rad);
+                lsSpreads_deg = min(lsSpreads_deg, lateralEQ_struct.maxSpread); % clip spread to precomputed max (90)
+                
+                for pairi = 1:numel(fwBias)
+                    [dq1, dq2, dq3, dq4] = ndgrid( ...
+                        lsSpreads_deg(pairi), fwBias(pairi), abs(srcLatAng_deg), binFreqs);
+%                     lsSpreads(pairi)
+%                     fwBias(pairi)
+%                     srcLatAng_deg
+                    latEQs(:,doai) = latEQs(:,doai) + ...
+                        squeeze( interpn(                      ...
+                            igrid{1}, igrid{2}, igrid{3}, igrid{4},         ...
+                            lateralEQ_struct.eq_table_culled,               ...
+                            dq1, dq2, dq3, dq4, lateralEQ_struct.interpType ...
+                            )) .* weights(pairi);
+                end
+                
+                % Error checking
+                if debug, checkForNaNs(latEQs(:,doai), 'compass_synthesis'); end
+                
+                % DEBUG
+                if debug
+                    if mod(blockIndex, 5) == 0
+                        binMagDir = [   binMagDir; 
+                                        [ binFreqs, latEQs(:,doai), ones(numel(binFreqs),1).*rad2deg(doas_aziElevRad(doai,1)) ];
+                                    ];
+                    end
+                    latBiasSprdWght = [ latBiasSprdWght; 
+                        [ srcLatAng_deg*ones(numel(fwBias),1), fwBias, lsSpreads_deg, weights ];
+                    ];
+                end
+            end
         end
         
         % ~~~~~~~~~~~~~~~~~~~~~~~~~~~ DEBUG ~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
@@ -207,6 +229,8 @@ while blockIndex <= nBlocks
         for band = erb_bins
             bini = bini+1;
             if applyLatEQ && Ndoa>0
+                % TODO: need to convert db->amp here, but should
+                % store EQ as amp not db (observe softclip behavior in that case)
                 Meq = diag(db2mag(latEQs(bini,:)));
             elseif synthesis_struct.vbap_pValue(band) ~= 2
                 % apply frequency-dependent VBAP normalization, if needed
@@ -298,10 +322,13 @@ fprintf('\n')
 
 output_signals_ls = output_signals_ls(afSTFTdelay+(1:((nBlocks-1)*blocksize)),:);  
 synthesis_struct.nElimDoas = nElimDoas;
-synthesis_struct.nZeroSrcCnt = zeroSrcCnt; % mtm DEBUG
-synthesis_struct.nDeadAheadCnt = deadAheadCnt; % mtm DEBUG
-synthesis_struct.binMagDir = binMagDir; % mtm DEBUG
 
+if debug
+    synthesis_struct.nZeroSrcCnt = zeroSrcCnt; % mtm DEBUG
+    synthesis_struct.nDeadAheadCnt = deadAheadCnt; % mtm DEBUG
+    synthesis_struct.binMagDir = binMagDir; % mtm DEBUG
+    synthesis_struct.latBiasSprdWght = latBiasSprdWght; % mtm DEBUG
+end
 % STFT destroy
 afSTFT();
 

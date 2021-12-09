@@ -55,6 +55,7 @@ nBands = length(synthesis_struct.bandFreq);
 nSH = size(compass_signals,1);
 order = sqrt(nSH)-1;
 nBlocks = size(compass_signals,4);
+nLS = size(synthesis_struct.vbap_gtable,1); % TODO: nLS was missing from main repo version % TODO set/store in struct prior?
 
 eq = synthesis_struct.eq;
 strBal = synthesis_struct.streamBalance;

@@ -160,7 +160,7 @@ while blockIndex <= nBlocks
         gains_nerb = synthesis_struct.vbap_gtable(:,doa_idcs);
         
         if applyLatEQ && Ndoa>0
-            doas_aziElev = synthesis_struct.DOAgrid_aziElev(doa_idcs);
+            doas_aziElev = synthesis_struct.DOAgrid_aziElev(doa_idcs,:);
             latEQs = zeros(nBins,Ndoa);
             igrid = lateralEQ_struct.interpGrid;
             binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
@@ -175,7 +175,7 @@ while blockIndex <= nBlocks
                 latEQs(:,doai) = squeeze( interpn(  ...
                         igrid{1}, igrid{2}, igrid{3}, lateralEQ_struct.eq_table_culled, dq1, dq2, dq3, lateralEQ_struct.interpType ...
                         ));
-                if mod(blockIndex, 50) == 0
+                if mod(blockIndex, 5) == 0
                     binMagDir = [ ...
                         binMagDir; 
                         [binFreqs, latEQs(:,doai), ones(numel(binFreqs),1).*doas_aziElev(doai,1)];
