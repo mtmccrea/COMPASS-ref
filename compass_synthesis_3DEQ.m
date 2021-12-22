@@ -186,6 +186,16 @@ while blockIndex <= nBlocks
                 lsSpreads_deg = rad2deg(lsSpreads_rad);
                 lsSpreads_deg = min(lsSpreads_deg, lateralEQ_struct.maxSpread); % clip spread to precomputed max (90)
                 
+                if any(fwBias > 1)
+                    warning('fwBias is above 1:\n\tfwBias: %s\n\tsrcLatAng_deg: %.1f\n\tDoA:%s\n\tlsSpreads_deg: %.1f\n\tgains_nerb(:,doai): %s\n', ...
+                        join(string(fwBias), ' '), ...
+                        srcLatAng_deg, ...
+                        join(string(rad2deg(doas_aziElevRad(doai,:))), ' '), ...
+                        lsSpreads_deg, join(string(gains_nerb(:,doai)), ' '));
+                    doas_aziElevRad(doai,:)
+                    fwBias = min(1,fwBias);
+                end
+                
                 for pairi = 1:numel(fwBias)
                     [dq1, dq2, dq3, dq4] = ndgrid( ...
                         lsSpreads_deg(pairi), fwBias(pairi), abs(srcLatAng_deg), binFreqs);
