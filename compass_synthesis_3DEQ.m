@@ -109,10 +109,7 @@ progress = 1;
 prevInputBlock = zeros(nSH, nFrames, nBands);
 while blockIndex <= nBlocks
     % display progress
-    if blockIndex*10/nBlocks > progress
-        fprintf('*');
-        progress=progress+1;
-    end
+    if blockIndex*10/nBlocks > progress, fprintf('*'); progress = progress+1; end
 
     % fetch next block multichannel spectrogram
     newInputBlock = compass_signals(:,:,:,blockIndex); % [nCH x nFramesInBlock x nBins]
@@ -121,7 +118,7 @@ while blockIndex <= nBlocks
     for erband=1:synthesis_struct.nERBands-1
         % fetch the estimated parameters for this ERB band
         erb_bins = synthesis_struct.ERBbinIdx(erband):synthesis_struct.ERBbinIdx(erband+1)-1;
-        nBins = numel(erb_bins); % mtm
+        nBins = numel(erb_bins);
         nSrc = compass_parameters.nSrc(erb_bins(1), blockIndex);
         % mtm: NOTE: doas for all bins in a band are the same, 
         %      as set in the analysis stage (covariance matrix for all bins are combined before analysis)
@@ -161,70 +158,91 @@ while blockIndex <= nBlocks
         Ds = pinv(As);                              % Adds nulls to the beamformers, pointed at other sources, normalizes in direction of DoA
         Dd = eye(nSH) - As*Ds;                      % residual (after sources are subtracted from input field)
 
-        % Formulate mixing matrices per band     
         
         % VBAP gains + lateralization EQ
         gains_nerb = synthesis_struct.vbap_gtable(:,doa_idcs);
         
         if applyLatEQ && Ndoa > 0
-            % reset gains to amp normalized, i.e. pval=1
-            % TODO: this norm can happen in preprocessing in the struct
+            % reset gains to amp normalized, i.e. pval=1; TODO: this norm can happen in preprocessing in the struct
             gains_nb = gains_nerb ./ sum(gains_nerb, 1); 
-            
-%             doas_aziElev = synthesis_struct.DOAgrid_aziElev(doa_idcs,:);
-            doas_aziElevRad = synthesis_struct.DOAgrid_aziElevRad(doa_idcs,:);
             latEQs = zeros(nBins,Ndoa);
-            igrid = lateralEQ_struct.interpGrid;
-            binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
-            
             for doai = 1:Ndoa
-%                 [fwBias, lateralAz, ~] = getForwardBias2DArray(doas_aziElev(doai,1), lateralEQ_struct.lsArrayAz);    
-                [srcLatAng_rad, fwBias, lsSpreads_rad, weights] = ...
-                    getForwardBias3DArray( ...
-                        doas_aziElevRad(doai,:), lateralEQ_struct.lsLatAngs_rad, gains_nerb(:,doai), verbose);
-                srcLatAng_deg = rad2deg(srcLatAng_rad);
-                lsSpreads_deg = rad2deg(lsSpreads_rad);
-                lsSpreads_deg = min(lsSpreads_deg, lateralEQ_struct.maxSpread); % clip spread to precomputed max (90)
+                latEQs(:,doai) = lateralEQ_struct.latEQ_doa(erb_bins,doa_idcs(doai));
+            end
+            % Debug: to introspect resulting lateral EQ
+            if debug
+                doas_ae_deg = synthesis_struct.DOAgrid_aziElev(doa_idcs,:);
+                fwbs = lateralEQ_struct.fwBias_doa(doa_idcs,:);
+                lssprds_deg = lateralEQ_struct.lsSpreads_deg_doa(doa_idcs,:);
+                wts = lateralEQ_struct.weights_doa(doa_idcs,:);
                 
-                if any(fwBias > 1)
-                    warning('fwBias is above 1:\n\tfwBias: %s\n\tsrcLatAng_deg: %.1f\n\tDoA:%s\n\tlsSpreads_deg: %.1f\n\tgains_nerb(:,doai): %s\n', ...
-                        join(string(fwBias), ' '), ...
-                        srcLatAng_deg, ...
-                        join(string(rad2deg(doas_aziElevRad(doai,:))), ' '), ...
-                        lsSpreads_deg, join(string(gains_nerb(:,doai)), ' '));
-                    doas_aziElevRad(doai,:)
-                    fwBias = min(1,fwBias);
-                end
-                
-                for pairi = 1:numel(fwBias)
-                    [dq1, dq2, dq3, dq4] = ndgrid( ...
-                        lsSpreads_deg(pairi), fwBias(pairi), abs(srcLatAng_deg), binFreqs);
-%                     lsSpreads(pairi)
-%                     fwBias(pairi)
-%                     srcLatAng_deg
-                    latEQs(:,doai) = latEQs(:,doai) + ...
-                        squeeze( interpn(                      ...
-                            igrid{1}, igrid{2}, igrid{3}, igrid{4},         ...
-                            lateralEQ_struct.eq_table_culled,               ...
-                            dq1, dq2, dq3, dq4, lateralEQ_struct.interpType ...
-                            )) .* weights(pairi);
-                end
-                
-                % Error checking
-                if debug, checkForNaNs(latEQs(:,doai), 'compass_synthesis'); end
-                
-                % DEBUG
-                if debug
+                srcLatAng_deg = azel2interauralDeg(doas_ae_deg(:,1), doas_ae_deg(:,2));
+                binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
+                for doai = 1:Ndoa
+                    Npair = sum(fwbs(doai,:)>-1);
                     if mod(blockIndex, 5) == 0
-                        binMagDir = [   binMagDir; 
-                                        [ binFreqs, latEQs(:,doai), ones(numel(binFreqs),1).*rad2deg(doas_aziElevRad(doai,1)) ];
-                                    ];
+                        binMagDir = [
+                            binMagDir;
+                            [ binFreqs, latEQs(:,doai), ones(numel(binFreqs),1).*doas_ae_deg(doai,1) ];
+                        ];
                     end
-                    latBiasSprdWght = [ latBiasSprdWght; 
-                        [ srcLatAng_deg*ones(numel(fwBias),1), fwBias, lsSpreads_deg, weights ];
+                    latBiasSprdWght = [
+                        latBiasSprdWght; 
+                        [ srcLatAng_deg(doai)*ones(Npair,1), fwbs(doai,1:Npair)', lssprds_deg(doai,1:Npair)', wts(doai,1:Npair)' ];
                     ];
                 end
             end
+            
+% %             doas_aziElev = synthesis_struct.DOAgrid_aziElev(doa_idcs,:);            
+%             doas_aziElevRad = synthesis_struct.DOAgrid_aziElevRad(doa_idcs,:);
+%             binFreqs = lateralEQ_struct.binFreq_latEQ(erb_bins);
+%             igrid = lateralEQ_struct.interpGrid;
+%             for doai = 1:Ndoa
+% %                 [fwBias, lateralAz, ~] = getForwardBias2DArray(doas_aziElev(doai,1), lateralEQ_struct.lsArrayAz);    
+%                 [srcLatAng_rad, fwBias, lsSpreads_rad, weights] = ...
+%                     getForwardBias3DArray( ...
+%                         doas_aziElevRad(doai,:), lateralEQ_struct.lsLatAngs_rad, gains_nerb(:,doai), verbose);
+%                 srcLatAng_deg = rad2deg(srcLatAng_rad);
+%                 lsSpreads_deg = rad2deg(lsSpreads_rad);
+%                 lsSpreads_deg = min(lsSpreads_deg, lateralEQ_struct.maxSpread); % clip spread to precomputed max (90)
+%                 
+%                 if any(fwBias > 1)
+%                     warning('fwBias is above 1:\n\tfwBias: %s\n\tsrcLatAng_deg: %.1f\n\tDoA:%s\n\tlsSpreads_deg: %.1f\n\tgains_nerb(:,doai): %s\n', ...
+%                         join(string(fwBias), ' '), ...
+%                         srcLatAng_deg, ...
+%                         join(string(rad2deg(doas_aziElevRad(doai,:))), ' '), ...
+%                         lsSpreads_deg, join(string(gains_nerb(:,doai)), ' '));
+%                     doas_aziElevRad(doai,:)
+%                     fwBias = min(1,fwBias);
+%                 end
+%                 
+%                 for pairi = 1:numel(fwBias)
+%                     [dq1, dq2, dq3, dq4] = ndgrid( ...
+%                         lsSpreads_deg(pairi), fwBias(pairi), abs(srcLatAng_deg), binFreqs);
+%                     latEQs(:,doai) = latEQs(:,doai) + ...
+%                         squeeze( interpn(                      ...
+%                             igrid{1}, igrid{2}, igrid{3}, igrid{4},         ...
+%                             lateralEQ_struct.eq_table_culled,               ...
+%                             dq1, dq2, dq3, dq4, lateralEQ_struct.interpType ...
+%                             )) .* weights(pairi);
+%                 end
+%                 
+%                 % Error checking
+%                 if debug, checkForNaNs(latEQs(:,doai), 'compass_synthesis'); end
+%                 
+%                 % DEBUG
+%                 if debug
+%                     if mod(blockIndex, 5) == 0
+%                         binMagDir = [   binMagDir; 
+%                                         [ binFreqs, latEQs(:,doai), ones(numel(binFreqs),1).*rad2deg(doas_aziElevRad(doai,1)) ];
+%                                     ];
+%                     end
+%                     latBiasSprdWght = [ latBiasSprdWght; 
+%                         [ srcLatAng_deg*ones(numel(fwBias),1), fwBias, lsSpreads_deg, weights ];
+%                     ];
+%                 end
+%             end
+
         end
         
         % ~~~~~~~~~~~~~~~~~~~~~~~~~~~ DEBUG ~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
@@ -234,8 +252,8 @@ while blockIndex <= nBlocks
 %         end
         % ~~~~~~~~~~~~~~~~~~~~~~~~~~~ DEBUG ~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
         
+        % Formulate mixing matrices per band
         bini = 0;
-%         fprintf("\napplying gains: ")
         for band = erb_bins
             bini = bini+1;
             if applyLatEQ && Ndoa>0
@@ -245,7 +263,6 @@ while blockIndex <= nBlocks
             elseif synthesis_struct.vbap_pValue(band) ~= 2
                 % apply frequency-dependent VBAP normalization, if needed
                 pVal_nb = synthesis_struct.vbap_pValue(band);
-                % TODO: ensure normalization happens across columns (DoAs), not whole nLS x Ndoa matrix
                 gains_nb = gains_nerb./(ones(nLS,1) * sum(gains_nerb.^pVal_nb).^(1/pVal_nb));
                 Meq = diag(ones(1,Ndoa));
             else
@@ -334,10 +351,10 @@ output_signals_ls = output_signals_ls(afSTFTdelay+(1:((nBlocks-1)*blocksize)),:)
 synthesis_struct.nElimDoas = nElimDoas;
 
 if debug
-    synthesis_struct.nZeroSrcCnt = zeroSrcCnt; % mtm DEBUG
-    synthesis_struct.nDeadAheadCnt = deadAheadCnt; % mtm DEBUG
-    synthesis_struct.binMagDir = binMagDir; % mtm DEBUG
-    synthesis_struct.latBiasSprdWght = latBiasSprdWght; % mtm DEBUG
+    synthesis_struct.nZeroSrcCnt = zeroSrcCnt; 
+    synthesis_struct.nDeadAheadCnt = deadAheadCnt;
+    synthesis_struct.binMagDir = binMagDir;
+    synthesis_struct.latBiasSprdWght = latBiasSprdWght;
 end
 % STFT destroy
 afSTFT();

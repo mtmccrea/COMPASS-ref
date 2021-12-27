@@ -1,4 +1,4 @@
-function synthesis_struct = compass_synthesis_init(analysis_struct, output_struct)
+function synthesis_struct = compass_synthesis_init(analysis_struct, output_struct, compass_path)
 % COMPASS_SYNTHESIS_INIT Initializes structure of params for COMPASS synthesis
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -91,13 +91,15 @@ function synthesis_struct = compass_synthesis_init(analysis_struct, output_struc
 
 % addpath('./compass-lib')
 
+if nargin < 3, compass_path = '.'; end
+
 %%% ARGUMENT CHECK AND SETTING DEFAULT VALUES
 if ~isfield(output_struct, 'mode') || isempty(output_struct.mode)
     error('output_struct.mode field not defined, set 0: loudspeaker rendering, 1: headphone monitoring')
 end
 if ~isfield(output_struct, 'eq') || isempty(output_struct.eq)
     warning('output_struct.eq field not defined, setting it to default EQ vector')
-    load('./resources/EQ_example.mat','eq_oct1_hybrid')
+    load([compass_path '/resources/EQ_example.mat'],'eq_oct1_hybrid')
     output_struct.eq = eq_oct1_hybrid; clear eq_oct1_hybrid
 end
 if ~isfield(output_struct, 'streamBalance') || isempty(output_struct.streamBalance)
@@ -131,7 +133,7 @@ if output_struct.mode==1
     if ~isfield(output_struct, 'hrirs') || isempty(output_struct.hrirs)
         warning('output_struct.hrirs field not defined, loading default HRIR set ()')
         
-        load('./resources/HRIRs_example.mat','hrirs','hrtf_fs','hrtf_dirs_deg_aziElev')
+        load([compass_path '/resources/HRIRs_example.mat'],'hrirs','hrtf_fs','hrtf_dirs_deg_aziElev')
         output_struct.hrirs = hrirs;
         output_struct.hrir_fs = hrtf_fs;
         output_struct.hrtf_dirs = hrtf_dirs_deg_aziElev;
@@ -139,7 +141,7 @@ if output_struct.mode==1
     if ~isfield(output_struct, 'hrtf_dirs') || isempty(output_struct.hrtf_dirs)
         warning('output_struct.hrtf_dirs field not defined, loading default HRIR set ()')
         
-        load('./resources/HRIRs_example.mat','hrirs','hrtf_fs','hrtf_dirs_deg_aziElev')
+        load([compass_path '/resources/HRIRs_example.mat'],'hrirs','hrtf_fs','hrtf_dirs_deg_aziElev')
         output_struct.hrirs = hrirs;
         output_struct.hrir_fs = hrtf_fs;
         output_struct.hrtf_dirs = hrtf_dirs_deg_aziElev;
@@ -147,7 +149,7 @@ if output_struct.mode==1
     if ~isfield(output_struct, 'hrtf_fs') || isempty(output_struct.hrtf_fs)
         warning('output_struct.hrtf_fs field not defined, loading default HRIR set ()')
         
-        load('./resources/HRIRs_example.mat','hrirs','hrtf_fs','hrtf_dirs_deg_aziElev')
+        load([compass_path '/resources/HRIRs_example.mat'],'hrirs','hrtf_fs','hrtf_dirs_deg_aziElev')
         output_struct.hrirs = hrirs;
         output_struct.hrir_fs = hrtf_fs;
         output_struct.hrtf_dirs = hrtf_dirs_deg_aziElev;
