@@ -20,6 +20,10 @@ function lateralEQ_struct = compass_lateralEQ_init(synthesis_struct, initEQ_stru
     k_clip          = initEQ_struct.k_clip;
     lsDesign        = initEQ_struct.lsDesign;
     NpanStepsOut    = numel(fwBiasSteps);
+    if initEQ_struct.dim == 2
+        lsSpread2D      = initEQ_struct.lsSpread2D; % for 2D regular arrays
+        onPoint2D       = initEQ_struct.onPoint2D;
+    end
     
     % Only store the sampled bins that are unique, i.e. no repeated low/high 
     % freqs outside ERB band range (they can be queried on demand)
@@ -56,7 +60,7 @@ function lateralEQ_struct = compass_lateralEQ_init(synthesis_struct, initEQ_stru
             % Table reduction one: fix listening radius, lsSpread, ear weight
             [dq1,dq2,dq3,dq4,dq5,dq6] = ndgrid(   ...
                 listeningRadius, ...   % listeningRadii, matching original precalc'd vals or interpolated
-                lsSpread,        ...   % LS spread, matching original precalc'd vals or interpolated
+                lsSpread2D,      ...   % LS spread, matching original precalc'd vals or interpolated
                 fwBiasSteps,     ...   % forward bias: pan "position" within LS pair, formulated as [0,1] from left/backmost speaker
                 panDirs,         ...   % positive lateral pan direction ([0,90] deg)
                 Fc_erb,          ...   % all ERB band freqs
@@ -93,9 +97,7 @@ function lateralEQ_struct = compass_lateralEQ_init(synthesis_struct, initEQ_stru
             lateralEQ_struct.interpGrid{1} = dq1;
             lateralEQ_struct.interpGrid{2} = dq2;
             lateralEQ_struct.interpGrid{3} = dq3;
-
-            % TODO: temp, fixed for Wilska
-            lateralEQ_struct.lsArrayAz = getRing(360/lsSpread_forFWBias, onPoint);
+            lateralEQ_struct.lsArrayAz2D = getRing(360/lsSpread2D, onPoint2D);
 
         case 3
             % Table reduction one: fix listening radius, lsSpread, ear weight
@@ -144,6 +146,10 @@ function lateralEQ_struct = compass_lateralEQ_init(synthesis_struct, initEQ_stru
 
             lateralEQ_struct.lsLatAngs_rad = azel2interauralRad(lsDesign.Directions(:,1), lsDesign.Directions(:,2));
     end
+    lateralEQ_struct.k_freq = k_freq;
+    lateralEQ_struct.k_dir = k_dir;
+    lateralEQ_struct.k_clip = k_clip;
+
     clear d1 d2 d3 d4 d5 d6 dq1 dq2 dq3 dq4 dq5 dq6 pani 
 
     
